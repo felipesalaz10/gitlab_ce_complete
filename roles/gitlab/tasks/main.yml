@@ -1,0 +1,86 @@
+
+- name: Instalar dependencias
+  dnf:
+    name:
+      - curl
+      - policycoreutils
+      - openssh-server
+      - openssh-clients
+      - perl
+      - firewalld
+    state: present
+
+- name: Habilitar e iniciar firewalld
+  service:
+    name: firewalld
+    state: started
+    enabled: true
+
+- name: Abrir puertos HTTP y HTTPS
+  firewalld:
+    port: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - 80/tcp
+    - 443/tcp
+
+- name: Crear directorio SSL
+  file:
+    path: "{{ gitlab_ssl_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+
+- name: Crear certificado autofirmado
+  command: >
+    openssl req -newkey rsa:2048 -nodes -keyout {{ gitlab_ssl_cert_dir }}/{{ gitlab_ssl_key }}
+    -x509 -days 365 -out {{ gitlab_ssl_cert_dir }}/{{ gitlab_ssl_cert }}
+    -subj "/C=CO/ST=Bogota/L=Bogota/O=Contraloria/OU=IT/CN=gitlab.example.local"
+  args:
+    creates: "{{ gitlab_ssl_cert_dir }}/{{ gitlab_ssl_cert }}"
+
+- name: Agregar repositorio oficial de GitLab
+  get_url:
+    url: https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.rpm.sh
+    dest: /tmp/gitlab_install.sh
+    mode: '0755'
+
+- name: Ejecutar script de repositorio
+  command: /tmp/gitlab_install.sh
+
+- name: Instalar GitLab CE
+  dnf:
+    name: gitlab-ce
+    state: present
+
+- name: Configurar GitLab external_url
+  lineinfile:
+    path: /etc/gitlab/gitlab.rb
+    regexp: "^external_url"
+    line: "external_url '{{ gitlab_external_url }}'"
+    create: yes
+
+- name: Configurar SSL en GitLab
+  blockinfile:
+    path: /etc/gitlab/gitlab.rb
+    block: |
+      nginx['ssl_certificate'] = "{{ gitlab_ssl_cert_dir }}/{{ gitlab_ssl_cert }}"
+      nginx['ssl_certificate_key'] = "{{ gitlab_ssl_cert_dir }}/{{ gitlab_ssl_key }}"
+
+- name: Reconfigurar GitLab
+  command: gitlab-ctl reconfigure
+
+- name: Habilitar e iniciar GitLab
+  service:
+    name: gitlab-runsvdir
+    enabled: true
+    state: started
+
+- include_tasks: ldap.yml
+  when: gitlab_ldap_enabled
+
+- include_tasks: runner.yml
+  when: gitlab_runner_enabled

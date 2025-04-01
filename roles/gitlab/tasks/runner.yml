@@ -1,0 +1,28 @@
+
+- name: Instalar GitLab Runner
+  dnf:
+    name:
+      - gitlab-runner
+    state: present
+  when: gitlab_runner_enabled
+
+- name: Habilitar e iniciar GitLab Runner
+  service:
+    name: gitlab-runner
+    state: started
+    enabled: true
+  when: gitlab_runner_enabled
+
+- name: Registrar GitLab Runner
+  command: >
+    gitlab-runner register --non-interactive
+    --url {{ gitlab_external_url }}
+    --registration-token {{ gitlab_runner_registration_token }}
+    --executor {{ gitlab_runner_executor }}
+    --description "{{ gitlab_runner_description }}"
+    --tag-list "{{ gitlab_runner_tags }}"
+    --run-untagged="true"
+    --locked="false"
+  when: gitlab_runner_enabled
+  args:
+    creates: /etc/gitlab-runner/config.toml
